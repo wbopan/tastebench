@@ -15,7 +15,7 @@
 
 ---
 
-**Taste-Bench measures the *taste* of an LLM agent: its ability to choose the better direction at a real decision fork in a long-horizon task.** Given the *task*, the *trajectory up to the fork*, and *two candidate next steps*, the model must pick the step that the hidden rest of the trajectory proves right. The 502 questions are mined from software engineering and machine-learning research trajectories, with no expert annotation.
+**Taste-Bench measures the *taste* of an LLM agent: its ability to choose the better direction at a real decision fork in a long-horizon task.** Given the *task*, the *trajectory up to the fork*, and *two candidate next steps*, the model must pick the step that the hidden rest of the trajectory proves right. A wrong choice often looks reasonable at the moment and costs the agent most of its budget later. The 502 questions are mined from software engineering and machine-learning research trajectories, with no expert annotation, and the best frontier model answers **59.7%** of them correctly.
 
 <div align="center">
 <img src="assets/decision_fork.png" alt="A decision fork from a machine-learning trajectory" width="560">
@@ -23,21 +23,9 @@
 <sub>A decision fork from a machine-learning trajectory. The model chooses before the later losses reveal that A is better.</sub>
 </div>
 
-<br>
-
-Why this matters: a wrong long-horizon decision often looks reasonable at the moment, and its cost appears only after the agent has spent most of its budget. End-to-end benchmarks report whether the agent finished, not whether it decided well along the way. Taste-Bench measures the decisions themselves, and the best frontier model gets **59.7%** of them right.
-
-## News
-
-- **[2026-09]** Initial release: 502 questions, the paired-order evaluation protocol, and results for 14 frontier models.
-
 ## Leaderboard
 
-Accuracy is the share of questions answered correctly in **both** option orders, so random guessing scores 25 and a model that always picks the same position scores 0. **Average** is the 1:1 mean of the research and engineering subsets.
-
-<div align="center">
-<img src="assets/results.png" alt="Leaderboard: Average, Research, and Engineering accuracy per model" width="100%">
-</div>
+A question counts as correct only when the model answers it correctly in **both** option orders, so random guessing scores 25 and a model that always picks the same position scores 0. **Average** is the 1:1 mean of the research and engineering subsets.
 
 | Model | Average | D-Eng | D-Res | P-Eng | P-Res | Unparsed |
 |---|---:|---:|---:|---:|---:|---:|
@@ -56,130 +44,47 @@ Accuracy is the share of questions answered correctly in **both** option orders,
 | GPT-5.4 Nano | 36.6 | 25.6 | 39.1 | 46.0 | 43.8 | 93 |
 | Grok 4.20 Reasoning | 15.7 | 19.9 | 9.4 | 28.2 | 8.3 | 459 |
 
-<sub>D = detour, P = parallel; Eng = engineering (390 questions), Res = research (112). Unparsed counts presentations, out of 1,004, whose final answer could not be read; they count as wrong. Every model answered under the same prompt, the same 64K-token input budget, and the same seeded and reversed orders. Per-model summaries are in <code>results/</code>; <code>tb leaderboard</code> regenerates this table.</sub>
-
-> [!NOTE]
-> All rows were produced with protocol `paired_order_v1` in August 2026. To add a model, run the same protocol over all 502 questions in both orders and open a pull request with the run's `summary.json` under `results/<model>/`. Partial runs and other prompts are not comparable.
+<sub>D = detour, P = parallel; Eng = engineering (390 questions), Res = research (112). Unparsed presentations, out of 1,004, count as wrong. All rows use protocol <code>paired_order_v1</code>, August 2026. To add a model, run the full protocol and open a pull request with its <code>summary.json</code> under <code>results/&lt;model&gt;/</code>.</sub>
 
 ## How the questions are built
 
-A *decision fork* is a point where attempts at the same task diverge. The later part of the trajectory is hindsight evidence for the decision made at the fork, so the trajectories label themselves.
+The later part of a trajectory is hindsight evidence for the decision made at a fork, so the trajectories label themselves. Questions come in two constructions and two domains.
 
-<div align="center">
-<img src="assets/construction.png" alt="Construction and filtering of Taste-Bench" width="100%">
-</div>
-
-- **Parallel forks.** Independent attempts at the same task diverge at the same point and end with different recorded outcomes. The shared part before the fork becomes the prefix, the two directions become the candidates, and the outcome of each attempt labels the better one.
-- **Detour forks.** An agent takes a direction, abandons it after an observed failure, and recovers inside the same run. The fork is placed right before the abandoned direction. The abandoned direction and the later recovery become the candidates.
-- **Filtering.** A candidate question is dropped as *trivial* when every judge model answers it from the candidate wording alone, and as *undecidable* when any judge disagrees with its label after reading the full record. Of 4,657 mined forks, 502 survive.
-
-| | Engineering | Research |
-|---|---:|---:|
-| **Detour** | 266 | 64 |
-| **Parallel** | 124 | 48 |
-
-Engineering questions come from graded rollouts on SWE-bench and SWE-bench Pro tasks. Research questions come from MALT, the public transcript release of METR, on RE-Bench and HCAST tasks. The mining pipeline is not part of this repository; the released questions are the product.
-
-## Example question
-
-<table>
-<tr><td>
-
-**Task given to the agent**
-
-> Modify NodeBB production source code so the admin file-upload endpoint validates the requested folder before saving. Resolve the folder using the configured `nconf.get('upload_path')` as its base, reject missing or non-directory targets with `[[error:invalid-path]]`, and prevent paths from escaping the upload root. Do not introduce new interfaces or add/edit tests.
-
-**Agent's progress so far** — 30 recorded steps, shown in full to the model: the agent has inspected the harness, found the admin upload controller and its tests, and read the surrounding file helpers.
-
-**Decision point**
-
-**A.** Add a focused folder-existence helper for the admin upload controller that resolves the target under the configured upload root and verifies it is a directory. Before calling the save helper, reject invalid targets with `[[error:invalid-path]]` and delete the temporary uploaded file.
-
-**B.** Inline upload-root containment and directory-stat checks inside the controller's existing save try/catch. Throw `[[error:invalid-path]]` for invalid targets and let the existing catch forward the error through `next`.
+- **Parallel forks.** Independent attempts at the same task diverge at the same point and end with different recorded outcomes. The outcome of each attempt labels the better direction.
+- **Detour forks.** An agent takes a direction, abandons it after an observed failure, and recovers inside the same run. The abandoned direction and the later recovery are the candidates.
+- **Filtering.** A question is dropped as *trivial* when every judge model answers it from the candidate wording alone, and as *undecidable* when any judge disagrees with its label after reading the full record. Of 4,657 mined forks, 502 survive: 266 detour and 124 parallel questions in engineering (SWE-bench and SWE-bench Pro rollouts), 64 detour and 48 parallel in research (METR's MALT release of RE-Bench and HCAST runs).
 
 <details>
-<summary><b>Hidden from the model: label and rationale</b></summary>
+<summary><b>Example question</b> (parallel, engineering)</summary>
 <br>
 
-**A** is correct. The attempt that took A passed the hidden tests; the attempt that took B failed them. The two branches differ on a resource-lifecycle decision: A validates before saving and deletes the temporary multipart file on rejection, while B forwards the error through the existing catch path without cleaning up the upload.
+> **Task.** Modify NodeBB production source code so the admin file-upload endpoint validates the requested folder before saving. Resolve the folder using the configured `nconf.get('upload_path')` as its base, reject missing or non-directory targets with `[[error:invalid-path]]`, and prevent paths from escaping the upload root.
+>
+> **Progress.** 30 recorded steps: the agent has inspected the harness, found the admin upload controller and its tests, and read the surrounding file helpers.
+>
+> **A.** Add a focused folder-existence helper that resolves the target under the configured upload root and verifies it is a directory. Before calling the save helper, reject invalid targets with `[[error:invalid-path]]` and delete the temporary uploaded file.
+>
+> **B.** Inline upload-root containment and directory-stat checks inside the controller's existing save try/catch. Throw `[[error:invalid-path]]` for invalid targets and let the existing catch forward the error through `next`.
+
+Hidden from the model: **A** is correct. The attempt that took A passed the hidden tests; B forwarded the error without cleaning up the temporary upload, and its attempt failed.
 
 </details>
 
-</td></tr>
-</table>
-
 ## Evaluation protocol
 
-The protocol is specified in [`protocol/paired_order_v1.yaml`](protocol/paired_order_v1.yaml) and explained in [`protocol/paired_order_v1.md`](protocol/paired_order_v1.md).
-
-1. **Input.** The model sees the task, the full trajectory prefix up to the fork, and the two candidates. The prefix is rebuilt from the released transcript, and credential-shaped text is redacted before it is hashed or sent. When a request exceeds 65,536 tokens, the first 25 rendered lines and the longest possible tail are kept, with an explicit omission marker.
-2. **Prompt.** The prompt states that exactly one candidate is better and asks for one line, `ANSWER: X`. It does not request visible chain of thought. Provider-native reasoning settings belong to the per-model config.
-3. **Two orders.** Every question is asked twice, once in a seeded option order and once in the exact reverse. The letters are recomputed after each ordering, so an answer that flips with the order does not count.
-4. **Scoring.** The denominator is every released question. Request errors and unparseable outputs count as wrong. We report the both-orders accuracy, the mean single-order accuracy, the four paired outcomes (CC, CW, WC, WW), and position-choice counts, overall and per cell.
-
-Only `query`, the rendered prefix, and the text of each choice reach the evaluated model. The rationale, the outcomes, and the provenance fields never do, and `tb validate` checks that boundary.
+Specified in [`protocol/paired_order_v1.yaml`](protocol/paired_order_v1.yaml). The model sees the task, the full trajectory prefix rebuilt from the released transcript (credentials redacted, 64K-token budget with an explicit omission marker on overflow), and the two candidates. The prompt asks for one line, `ANSWER: X`, without visible chain of thought. Every question is asked in a seeded option order and in its exact reverse, with letters recomputed each time. The denominator is every released question, and request errors and unparseable outputs count as wrong. Only the task, the prefix, and the choice texts ever reach the model; `tb validate` checks that boundary.
 
 ## Quick start
 
 ```bash
-git clone https://github.com/wbopan/tastebench && cd tastebench
-uv sync
-uv run tb download        # fetch the release from Hugging Face into ./data
-uv run tb validate        # check the 502 questions and the transcript hashes
-```
-
-Point `tb run` at any OpenAI-compatible `chat/completions` or `responses` URL. The key is read from `TASTEBENCH_API_KEY`.
-
-```bash
-export TASTEBENCH_API_KEY=...
+git clone https://github.com/wbopan/tastebench && cd tastebench && uv sync
+uv run tb download                                   # release from Hugging Face into ./data
+export TASTEBENCH_API_KEY=...                        # any OpenAI-compatible endpoint
 uv run tb run --model gpt-5.5 --api https://api.openai.com/v1/chat/completions
-uv run tb score runs/gpt-5.5/<date>
+uv run tb score runs/gpt-5.5/<date>                  # prints per-cell accuracy and Average
 ```
 
-`tb score` prints the headline numbers:
-
-```text
-items 502  seeded 317/502  reversed 321/502  both_correct 292 (58.2%)  errors 0  unparsed 0
-  detour_engineering     both_correct 128/266 (48.1%)
-  detour_research        both_correct 43/64 (67.2%)
-  parallel_engineering   both_correct 94/124 (75.8%)
-  parallel_research      both_correct 27/48 (56.2%)
-Average 59.7
-```
-
-`tb run` writes one JSON record per question and order under `runs/<model>/<date>/raw/`, plus `summary.json` and a `manifest.json` with the hashes of the config, the protocol, and the release. Runs are resumable, and `--limit N` runs a smoke test on the first N questions. Per-model request settings such as temperature, reasoning effort, and token limits live in [`configs/models.yaml`](configs/models.yaml).
-
-> [!TIP]
-> A full run is 1,004 requests and about 8M input tokens. The median prompt is 7K tokens and the longest is 54K. Reasoning output varies from under 0.1M to 7M tokens across the models above.
-
-## Data
-
-The release on Hugging Face has the same layout that the code reads locally:
-
-```text
-manifest.json                  item counts and SHA-256 of every file below
-items/<cell>.jsonl             one question per line, four cells
-transcripts.manifest.json      step counts and checksums of every transcript
-transcripts/<traj_id>.json     the recorded trajectories the prefixes are rebuilt from
-```
-
-<details>
-<summary><b>Fields of a question</b></summary>
-<br>
-
-| Field | Meaning |
-|---|---|
-| `id`, `method`, `dataset`, `task_id` | Identity: `method` is `parallel` or `detour`; `dataset` is the trajectory source |
-| `query` | The task given to the agent |
-| `reference_traj`, `breakpoint_step` | The transcript and the step at which it is frozen |
-| `prefix_text` | The rendered prefix up to the fork |
-| `choices[].text` | The two candidate next steps |
-| `choices[].is_correct` | The label from the recorded outcome |
-| `choices[].outcome` | The recorded outcome of the branch |
-| `rationale` | Why the label holds, hidden from the model |
-| `quality`, `provenance` | Filter votes and extraction metadata, hidden from the model |
-
-</details>
+`tb run` writes one record per question and order, is resumable, and takes `--limit N` for smoke tests. A full run is 1,004 requests and about 8M input tokens. Per-model request settings live in [`configs/models.yaml`](configs/models.yaml). The release layout is `manifest.json`, `items/<cell>.jsonl`, `transcripts.manifest.json`, and `transcripts/<traj_id>.json`; each question carries the task, the frozen transcript reference, the two choices with their recorded outcomes, and a rationale that is never shown to the model.
 
 ## Citation
 
@@ -192,8 +97,4 @@ transcripts/<traj_id>.json     the recorded trajectories the prefixes are rebuil
 }
 ```
 
-## Acknowledgements
-
-The trajectories come from SWE-bench, SWE-bench Pro, and the MALT release of METR, which covers RE-Bench and HCAST tasks. The transcripts are technical agent records, not human-subject data, and credential strings are removed before any hashing or transmission.
-
-Released under the [MIT License](LICENSE).
+Trajectories come from SWE-bench, SWE-bench Pro, and METR's MALT release. Released under the [MIT License](LICENSE).
