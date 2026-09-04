@@ -2,13 +2,13 @@ schema_version: 1
 id: v3-paired-order-full-prefix-64k-final-answer-v1
 kind: paired_order_model_evaluation
 input:
-  prefix_source: manifest_verified_transcript_steps_before_breakpoint
-  sensitive_redaction: tastebench_secret_patterns_before_any_hash_or_request
+  prefix_source: published_prefix_text_from_dataset_release
+  sensitive_redaction: applied_upstream_before_publication
   max_tokens: 65536
   token_counter: local_tiktoken_o200k_base_over_rendered_messages_with_configurable_safety_multiplier
   overflow_policy: first_25_rendered_lines_plus_maximal_tail
 presentation:
-  options: per_item_seeded_order_and_exact_reverse
+  options: published_order_and_exact_reverse
   labels: recomputed_after_each_ordering
   context: task_full_redacted_prefix_and_two_candidate_next_steps
   visible_response: final_answer_only

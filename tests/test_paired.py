@@ -1,28 +1,66 @@
 from tastebench.paired import (
     make_token_counter,
+    option_blocks,
     parse_final_answer,
     prepare_question,
     render_messages,
 )
-from tastebench.schema import Choice, Item
+from tastebench.schema import Question
 
 
-def _item(item_id: str, n: int = 2) -> Item:
-    return Item(
-        id=item_id,
+def _question(question_id: str = "q", prefix_text: str = "prefix", **kw) -> Question:
+    base = dict(
+        id=question_id,
+        domain="engineering",
         method="parallel",
-        dataset="swebench",
+        cell="parallel_engineering",
+        source="swebench",
         task_id="task",
         query="fix the bug",
-        choices=[Choice(text=f"option {index}", is_correct=index == 0) for index in range(n)],
+        prefix_text=prefix_text,
+        prefix_text_short=prefix_text[:20],
+        prefix_steps=3,
+        choices=["option zero", "option one"],
+        answer="A",
+        answer_index=0,
+        canary="canary",
     )
+    base.update(kw)
+    return Question(**base)
+
+
+def _texts(blocks: str) -> list[str]:
+    return [block.split("\n", 1)[1] for block in blocks.split("\n\n")]
+
+
+def test_option_blocks_render_the_published_order() -> None:
+    blocks, correct = option_blocks(_question(), reverse=False)
+    assert blocks == "Option A:\noption zero\n\nOption B:\noption one"
+    assert correct == "A"
+
+
+def test_option_blocks_reverse_and_recompute_labels() -> None:
+    question = _question()
+    seeded, _ = option_blocks(question, reverse=False)
+    blocks, correct = option_blocks(question, reverse=True)
+    assert blocks == "Option A:\noption one\n\nOption B:\noption zero"
+    # The candidate texts are reversed and the labels are recomputed, so the correct
+    # letter moves while the correct candidate stays the same.
+    assert correct == "B"
+    assert _texts(blocks) == list(reversed(_texts(seeded)))
+
+
+def test_option_blocks_follow_the_answer_index() -> None:
+    _, correct = option_blocks(_question(answer="B", answer_index=1), reverse=False)
+    assert correct == "B"
+    _, flipped = option_blocks(_question(answer="B", answer_index=1), reverse=True)
+    assert flipped == "A"
 
 
 def test_prompt_only_requests_final_answer() -> None:
     messages, _ = render_messages(
-        _item("lean", 2),
+        _question("lean"),
         "full prefix",
-        seed=1234,
         reverse=False,
         system_prompt="Judge the decision.",
         user_template="{query}\n{prefix}\n{options}\nReturn exactly one line: ANSWER: X",
@@ -34,16 +72,9 @@ def test_prompt_only_requests_final_answer() -> None:
 
 
 def test_reversed_order_is_the_exact_reverse() -> None:
-    kwargs = dict(
-        system_prompt="Judge.",
-        user_template="{query}\n{prefix}\n{options}",
-    )
-    seeded, seeded_correct = render_messages(
-        _item("pair", 2), "prefix", seed=1234, reverse=False, **kwargs
-    )
-    flipped, flipped_correct = render_messages(
-        _item("pair", 2), "prefix", seed=1234, reverse=True, **kwargs
-    )
+    kwargs = dict(system_prompt="Judge.", user_template="{query}\n{prefix}\n{options}")
+    seeded, seeded_correct = render_messages(_question("pair"), "prefix", reverse=False, **kwargs)
+    flipped, flipped_correct = render_messages(_question("pair"), "prefix", reverse=True, **kwargs)
     assert {seeded_correct, flipped_correct} == {"A", "B"}
     assert seeded[1]["content"] != flipped[1]["content"]
 
@@ -55,45 +86,41 @@ def test_parse_final_answer_rejects_incidental_letters() -> None:
 
 
 def test_prepare_question_uses_full_prefix_below_token_cap() -> None:
-    item = _item("full", 2)
+    question = _question("full", prefix_text="line one\nline two")
 
     def count(messages):
         return len(messages[1]["content"]), "test"
 
-    question = prepare_question(
-        item,
-        "line one\nline two",
-        seed=1234,
+    prepared = prepare_question(
+        question,
         reverse=False,
         system_prompt="Judge.",
         user_template="{query}\n{prefix}\n{options}\nANSWER: X",
         max_input_tokens=10_000,
         count_tokens=count,
     )
-    assert question.truncated is False
-    assert question.full_prefix_chars == question.visible_prefix_chars
+    assert prepared.truncated is False
+    assert prepared.full_prefix_chars == prepared.visible_prefix_chars
 
 
 def test_prepare_question_truncates_middle_to_token_cap() -> None:
-    item = _item("trim", 2)
     prefix = "\n".join(f"line {index} " + "x" * 20 for index in range(100))
+    question = _question("trim", prefix_text=prefix)
 
     def count(messages):
         return len(messages[1]["content"]), "test"
 
-    question = prepare_question(
-        item,
-        prefix,
-        seed=1234,
+    prepared = prepare_question(
+        question,
         reverse=False,
         system_prompt="Judge.",
         user_template="{query}\n{prefix}\n{options}\nANSWER: X",
         max_input_tokens=1_300,
         count_tokens=count,
     )
-    assert question.truncated is True
-    assert question.input_tokens <= 1_300
-    assert "middle transcript lines omitted" in question.messages[1]["content"]
+    assert prepared.truncated is True
+    assert prepared.input_tokens <= 1_300
+    assert "middle transcript lines omitted" in prepared.messages[1]["content"]
 
 
 def test_token_counter_applies_the_safety_multiplier(monkeypatch) -> None:

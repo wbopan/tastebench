@@ -6,9 +6,9 @@
 api: ""
 api_key_env: TASTEBENCH_API_KEY
 
-# The per-item option shuffle is seeded by f"{seed}-{item.id}", so the seeded order is
-# stable across models and the reversed order is its exact reverse.
-seed: 1234
+# The option order is fixed by the dataset: `choices` ships in the evaluated order, so
+# the `seeded` presentation is the published one and `reversed` is its exact reverse.
+# No shuffle seed is configured here.
 
 workers: 6
 

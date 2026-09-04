@@ -1,41 +1,61 @@
-from tastebench.schema import SCHEMA_VERSION, Choice, Item, Outcome
+import pytest
+from pydantic import ValidationError
+
+from tastebench.schema import Question
 
 
-def _item(**kw):
+def _question(**kw) -> Question:
     base = dict(
         id="x1",
+        domain="engineering",
         method="parallel",
-        dataset="swebench",
+        cell="parallel_engineering",
+        source="swebench",
         task_id="t",
         query="do a thing",
         prefix_text="[0] AGENT: hi",
-        choices=[
-            Choice(text="good", is_correct=True, outcome=Outcome(passed=True)),
-            Choice(text="bad", is_correct=False, outcome=Outcome(passed=False)),
-        ],
+        prefix_text_short="[0] AGENT: hi",
+        prefix_steps=1,
+        choices=["good", "bad"],
+        answer="A",
+        answer_index=0,
+        canary="canary",
     )
     base.update(kw)
-    return Item(**base)
+    return Question(**base)
 
 
-def test_arity_is_computed():
-    it = _item()
-    assert it.arity == 2
-    it3 = _item(choices=[Choice(text=str(i), is_correct=(i == 0)) for i in range(3)])
-    assert it3.arity == 3
+def test_model_carries_exactly_the_published_columns():
+    assert tuple(Question.model_fields) == (
+        "id",
+        "domain",
+        "method",
+        "cell",
+        "source",
+        "task_id",
+        "query",
+        "prefix_text",
+        "prefix_text_short",
+        "prefix_steps",
+        "choices",
+        "answer",
+        "answer_index",
+        "canary",
+    )
 
 
-def test_correct_index():
-    assert _item().correct_index() == 0
-    two = _item(choices=[Choice(text="a", is_correct=True), Choice(text="b", is_correct=True)])
-    assert two.correct_index() is None  # ambiguous
+def test_arity_counts_the_choices():
+    assert _question().arity == 2
 
 
-def test_roundtrip_json_includes_arity():
-    it = _item()
-    dumped = it.model_dump_json()
-    assert '"arity":2' in dumped
-    back = Item.model_validate_json(dumped)
-    assert back.id == it.id
-    assert back.arity == 2
-    assert back.schema_version == SCHEMA_VERSION
+def test_roundtrip_json():
+    question = _question()
+    back = Question.model_validate_json(question.model_dump_json())
+    assert back == question
+
+
+def test_missing_column_is_rejected():
+    payload = _question().model_dump()
+    del payload["canary"]
+    with pytest.raises(ValidationError):
+        Question.model_validate(payload)

@@ -1,4 +1,4 @@
-"""Paired-order evaluation questions built from full, redacted trajectory prefixes."""
+"""Paired-order evaluation questions built from the published trajectory prefixes."""
 
 from __future__ import annotations
 
@@ -6,16 +6,12 @@ import functools
 import hashlib
 import json
 import math
-import random
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from tastebench.redaction import redact_sensitive_text
-from tastebench.render import render_steps
-from tastebench.schema import Item
-from tastebench.transcripts import TranscriptStore, checksum
+from tastebench.schema import Question
 
 LETTERS = "ABCDEFGH"
 OMISSION_MARKER = "...[middle transcript lines omitted to satisfy the 64K-token input cap]..."
@@ -38,58 +34,40 @@ def sha256_json(value: Any) -> str:
     return hashlib.sha256(blob.encode()).hexdigest()
 
 
-def reconstruct_prefix(
-    item: Item,
-    store: TranscriptStore,
-    transcript_manifest: Mapping[str, Mapping[str, Any]],
-) -> str:
-    """Rebuild the full pre-decision prefix from a manifest-verified transcript."""
-    if not item.reference_traj or item.breakpoint_step is None:
-        raise ValueError(f"{item.id}: missing reference trajectory or breakpoint")
-    if not store.has(item.reference_traj):
-        raise ValueError(f"{item.id}: transcript {item.reference_traj} is unavailable")
-    manifest_entry = transcript_manifest.get(item.reference_traj)
-    if not manifest_entry:
-        raise ValueError(f"{item.id}: transcript is absent from the release manifest")
-    steps = store.get(item.reference_traj)
-    if checksum(steps) != manifest_entry.get("checksum"):
-        raise ValueError(f"{item.id}: transcript checksum mismatch")
-    if not 0 < item.breakpoint_step <= len(steps):
-        raise ValueError(f"{item.id}: breakpoint is outside the transcript")
-    # Source transcripts can contain credentials. Redaction is mandatory before
-    # token counting, hashing, model calls, or artifact persistence.
-    return redact_sensitive_text(render_steps(steps[: item.breakpoint_step]))
+def option_blocks(question: Question, *, reverse: bool) -> tuple[str, str]:
+    """Render the published option order, or its exact reverse, relabelling as we go.
 
-
-def option_blocks(item: Item, *, seed: int, reverse: bool) -> tuple[str, str]:
-    order = list(range(item.arity))
-    random.Random(f"{seed}-{item.id}").shuffle(order)
+    The release ships ``choices`` already in the evaluated order, so no shuffle seed
+    is involved: the ``seeded`` order is the published one and the ``reversed`` order
+    is its exact reverse. Option letters are recomputed after ordering, so the correct
+    letter differs between the two presentations.
+    """
+    order = list(range(len(question.choices)))
     if reverse:
         order.reverse()
     blocks: list[str] = []
     correct = ""
     for position, choice_index in enumerate(order):
         letter = LETTERS[position]
-        blocks.append(f"Option {letter}:\n{item.choices[choice_index].text.strip()}")
-        if item.choices[choice_index].is_correct:
+        blocks.append(f"Option {letter}:\n{question.choices[choice_index].strip()}")
+        if choice_index == question.answer_index:
             correct = letter
     if not correct:
-        raise ValueError(f"{item.id}: no unique correct option")
+        raise ValueError(f"{question.id}: answer_index is outside the option list")
     return "\n\n".join(blocks), correct
 
 
 def render_messages(
-    item: Item,
+    question: Question,
     prefix: str,
     *,
-    seed: int,
     reverse: bool,
     system_prompt: str,
     user_template: str,
 ) -> tuple[list[dict[str, str]], str]:
-    options, correct = option_blocks(item, seed=seed, reverse=reverse)
+    options, correct = option_blocks(question, reverse=reverse)
     user = user_template.format(
-        query=item.query.strip(),
+        query=question.query.strip(),
         prefix=prefix.strip(),
         options=options,
     )
@@ -140,23 +118,21 @@ def make_token_counter(multiplier: float = 1.0) -> TokenCounter:
 
 
 def prepare_question(
-    item: Item,
-    full_prefix: str,
+    question: Question,
     *,
-    seed: int,
     reverse: bool,
     system_prompt: str,
     user_template: str,
     max_input_tokens: int,
     count_tokens: TokenCounter,
 ) -> PreparedQuestion:
-    """Use the full prefix unless the complete request exceeds the token cap."""
+    """Use the published prefix unless the complete request exceeds the token cap."""
+    full_prefix = question.prefix_text
 
     def build(prefix: str) -> tuple[list[dict[str, str]], str, int, str]:
         messages, correct = render_messages(
-            item,
+            question,
             prefix,
-            seed=seed,
             reverse=reverse,
             system_prompt=system_prompt,
             user_template=user_template,
@@ -202,7 +178,7 @@ def prepare_question(
         else:
             high = keep_tail - 1
     if best is None:
-        raise ValueError(f"{item.id}: task and prefix head alone exceed the input-token cap")
+        raise ValueError(f"{question.id}: task and prefix head alone exceed the input-token cap")
     messages, correct, tokens, tokenizer_type, visible_prefix = best
     return PreparedQuestion(
         messages=messages,

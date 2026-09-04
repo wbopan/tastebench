@@ -1,75 +1,72 @@
-from tastebench.schema import Choice, Item, Outcome, check_item
+from tastebench.schema import Question, check_question
 
 
-def _valid():
-    return Item(
+def _valid(**kw) -> Question:
+    base = dict(
         id="ok",
+        domain="research",
         method="parallel",
-        dataset="swebench",
+        cell="parallel_research",
+        source="malt",
         task_id="t",
         query="fix the bug",
         prefix_text="[0] AGENT: investigating",
-        reference_traj="traj_a",
-        breakpoint_step=1,
-        choices=[
-            Choice(text="approach A", is_correct=True, traj="traj_a", outcome=Outcome(passed=True)),
-            Choice(
-                text="approach B", is_correct=False, traj="traj_b", outcome=Outcome(passed=False)
-            ),
-        ],
+        prefix_text_short="[0] AGENT: investigating",
+        prefix_steps=1,
+        choices=["approach A", "approach B"],
+        answer="A",
+        answer_index=0,
+        canary="canary",
     )
+    base.update(kw)
+    return Question(**base)
 
 
-class _Store:
-    def __init__(self, trajs):
-        self._t = trajs
-
-    def has(self, t):
-        return t in self._t
-
-    def get(self, t):
-        return self._t[t]
+def test_valid_question_passes():
+    assert check_question(_valid()) == []
 
 
-def test_valid_item_passes():
-    assert check_item(_valid()) == []
+def test_answer_b_is_valid_when_the_index_agrees():
+    assert check_question(_valid(answer="B", answer_index=1)) == []
 
 
-def test_detects_two_correct():
-    it = _valid()
-    it.choices[1].is_correct = True
-    assert any("exactly 1 correct" in p for p in check_item(it))
+def test_detects_a_bad_answer_letter():
+    problems = check_question(_valid(answer="C"))
+    assert any("not one of" in problem for problem in problems)
 
 
-def test_detects_empty_query_and_prefix():
-    it = _valid()
-    it.query = "  "
-    it.prefix_text = ""
-    probs = check_item(it)
-    assert any("empty query" in p for p in probs)
-    assert any("empty prefix_text" in p for p in probs)
+def test_detects_answer_disagreeing_with_index():
+    problems = check_question(_valid(answer="A", answer_index=1))
+    assert any("disagrees with answer_index" in problem for problem in problems)
 
 
-def test_detects_correct_from_failing_rollout():
-    it = _valid()
-    it.choices[0].outcome = Outcome(passed=False)
-    assert any("failing rollout" in p for p in check_item(it))
+def test_detects_an_out_of_range_index():
+    problems = check_question(_valid(answer="B", answer_index=7))
+    assert any("out of range" in problem for problem in problems)
 
 
-def test_detects_rationale_leak():
-    it = _valid()
-    it.choices[0].rationale = "investigating"  # appears verbatim in prefix_text
-    assert any("rationale text leaked" in p for p in check_item(it))
+def test_detects_a_wrong_choice_count():
+    problems = check_question(_valid(choices=["only one"]))
+    assert any("expected 2 choices" in problem for problem in problems)
 
 
-def test_store_breakpoint_bounds():
-    it = _valid()
-    it.breakpoint_step = 99
-    store = _Store({"traj_a": [{}, {}], "traj_b": [{}]})
-    assert any("out of bounds" in p for p in check_item(it, store))
+def test_detects_an_empty_choice():
+    problems = check_question(_valid(choices=["approach A", "   "]))
+    assert any("choice[1] empty text" in problem for problem in problems)
 
 
-def test_store_missing_choice_traj():
-    it = _valid()
-    store = _Store({"traj_a": [{}, {}]})  # traj_b missing
-    assert any("traj_b not in store" in p for p in check_item(it, store))
+def test_detects_empty_id_query_and_prefix():
+    problems = check_question(_valid(id="", query="  ", prefix_text=""))
+    assert any("empty id" in problem for problem in problems)
+    assert any("empty query" in problem for problem in problems)
+    assert any("empty prefix_text" in problem for problem in problems)
+
+
+def test_detects_a_cell_that_disagrees_with_method_and_domain():
+    problems = check_question(_valid(cell="detour_research"))
+    assert any("does not match method/domain" in problem for problem in problems)
+
+
+def test_detects_a_prefix_with_no_steps():
+    problems = check_question(_valid(prefix_steps=0))
+    assert any("prefix_steps 0 < 1" in problem for problem in problems)

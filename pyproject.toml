@@ -10,6 +10,7 @@ dependencies = [
     "typer>=0.12",
     "tiktoken",
     "huggingface_hub",
+    "pyarrow",
 ]
 
 [project.scripts]
@@ -36,6 +37,11 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.format]
+# Markdown here is prose; the fenced snippets are illustrative and are not held to
+# the formatter's line-breaking rules.
+exclude = ["*.md"]
 
 [tool.ruff.lint.flake8-bugbear]
 # typer/click sentinels are intentionally evaluated at import time.

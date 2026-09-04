@@ -7,9 +7,9 @@
 
 <br>
 
-📄 [Paper](#citation) &nbsp;|&nbsp; 🤗 [Dataset](https://huggingface.co/datasets/wbopan/tastebench) &nbsp;|&nbsp; 🏆 [Leaderboard](#leaderboard) &nbsp;|&nbsp; 🚀 [Quick start](#quick-start)
+📄 [Paper](#citation) &nbsp;|&nbsp; 🤗 [Dataset](https://huggingface.co/datasets/wenbopan/taste-bench) &nbsp;|&nbsp; 🏆 [Leaderboard](#leaderboard) &nbsp;|&nbsp; 🚀 [Quick start](#quick-start)
 
-[![Dataset](https://img.shields.io/badge/🤗_Dataset-wbopan%2Ftastebench-FFD21E?style=flat)](https://huggingface.co/datasets/wbopan/tastebench) [![CI](https://github.com/wbopan/tastebench/actions/workflows/ci.yml/badge.svg)](https://github.com/wbopan/tastebench/actions/workflows/ci.yml) [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat&logo=python&logoColor=white)](pyproject.toml) [![License](https://img.shields.io/badge/License-MIT-1A1A1A?style=flat)](LICENSE)
+[![Dataset](https://img.shields.io/badge/🤗_Dataset-wenbopan%2Ftaste--bench-FFD21E?style=flat)](https://huggingface.co/datasets/wenbopan/taste-bench) [![CI](https://github.com/wbopan/tastebench/actions/workflows/ci.yml/badge.svg)](https://github.com/wbopan/tastebench/actions/workflows/ci.yml) [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat&logo=python&logoColor=white)](pyproject.toml) [![License](https://img.shields.io/badge/License-MIT-1A1A1A?style=flat)](LICENSE)
 
 </div>
 
@@ -72,19 +72,28 @@ Hidden from the model: **A** is correct. The attempt that took A passed the hidd
 
 ## Evaluation protocol
 
-Specified in [`protocol/paired_order_v1.yaml`](protocol/paired_order_v1.yaml). The model sees the task, the full trajectory prefix rebuilt from the released transcript (credentials redacted, 64K-token budget with an explicit omission marker on overflow), and the two candidates. The prompt asks for one line, `ANSWER: X`, without visible chain of thought. Every question is asked in a seeded option order and in its exact reverse, with letters recomputed each time. The denominator is every released question, and request errors and unparseable outputs count as wrong. Only the task, the prefix, and the choice texts ever reach the model; `tb validate` checks that boundary.
+Specified in [`protocol/paired_order_v1.yaml`](protocol/paired_order_v1.yaml). The model sees the task, the full pre-decision trajectory as published in `prefix_text` (credentials and usernames redacted, 64K-token budget with an explicit omission marker on overflow), and the two candidates. The prompt asks for one line, `ANSWER: X`, without visible chain of thought. Every question is asked in the published option order and in its exact reverse, with letters recomputed each time. The denominator is every released question, and request errors and unparseable outputs count as wrong. `tb validate` checks the release hashes and every question's invariants.
 
 ## Quick start
 
+The dataset is gated to limit training contamination: request access on its [Hugging Face page](https://huggingface.co/datasets/wenbopan/taste-bench), then run `hf auth login` once.
+
 ```bash
 git clone https://github.com/wbopan/tastebench && cd tastebench && uv sync
-uv run tb download                                   # release from Hugging Face into ./data
+uv run tb download                                   # wenbopan/taste-bench@v1.0 into ./data
 export TASTEBENCH_API_KEY=...                        # any OpenAI-compatible endpoint
 uv run tb run --model gpt-5.5 --api https://api.openai.com/v1/chat/completions
 uv run tb score runs/gpt-5.5/<date>                  # prints per-cell accuracy and Average
 ```
 
-`tb run` writes one record per question and order, is resumable, and takes `--limit N` for smoke tests. A full run is 1,004 requests and about 8M input tokens. Per-model request settings live in [`configs/models.yaml`](configs/models.yaml). The release layout is `manifest.json`, `items/<cell>.jsonl`, `transcripts.manifest.json`, and `transcripts/<traj_id>.json`; each question carries the task, the frozen transcript reference, the two choices with their recorded outcomes, and a rationale that is never shown to the model.
+`tb run` writes one record per question and order, is resumable, and takes `--limit N` for smoke tests. A full run is 1,004 requests and about 8M input tokens. Per-model request settings live in [`configs/models.yaml`](configs/models.yaml).
+
+The data itself is two parquet configs, `engineering` (390 rows) and `research` (112 rows), with one `test` split each. A row holds `query`, the full `prefix_text`, the two `choices` in the published order, and the `answer` letter, plus `cell`, `task_id`, and a contamination canary. It loads without this repository:
+
+```python
+from datasets import load_dataset
+rows = load_dataset("wenbopan/taste-bench", "engineering", split="test", revision="v1.0")
+```
 
 ## Citation
 
@@ -97,4 +106,4 @@ uv run tb score runs/gpt-5.5/<date>                  # prints per-cell accuracy 
 }
 ```
 
-Trajectories come from SWE-bench, SWE-bench Pro, and METR's MALT release. Released under the [MIT License](LICENSE).
+Trajectories come from SWE-bench, SWE-bench Pro, and METR's MALT release. The code is released under the [MIT License](LICENSE) and the dataset text under CC BY 4.0.

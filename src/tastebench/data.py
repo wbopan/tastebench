@@ -1,11 +1,16 @@
-"""Load and verify a released Taste-Bench snapshot.
+"""Download, load and verify the published Taste-Bench dataset.
 
-The expected local layout is exactly what the dataset repository ships::
+The expected local layout is exactly what the Hugging Face dataset repository
+ships::
 
-    <data_dir>/manifest.json
-    <data_dir>/items/<cell>.jsonl
-    <data_dir>/transcripts.manifest.json
-    <data_dir>/transcripts/<traj_id>.json
+    <data_dir>/export_manifest.json
+    <data_dir>/eval.yaml
+    <data_dir>/data/engineering/test-00000-of-00001.parquet
+    <data_dir>/data/research/test-00000-of-00001.parquet
+
+Each parquet row is one :class:`~tastebench.schema.Question`. The release carries
+no transcripts, rationales or outcomes: everything the protocol needs is already
+rendered into ``prefix_text``.
 """
 
 from __future__ import annotations
@@ -17,60 +22,57 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from tastebench.schema import Item
+from tastebench.schema import Question, check_question
 
-HF_DATASET = "wbopan/tastebench"
+HF_DATASET = "wenbopan/taste-bench"
+HF_REVISION = "v1.0"
 DEFAULT_DATA_DIR = Path("data")
 
+MANIFEST_FILE = "export_manifest.json"
 
-# --- item files --------------------------------------------------------------
-
-
-def load_items(path: str | Path) -> list[Item]:
-    out = []
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            out.append(Item.model_validate_json(line))
-    return out
+# The parquet column names, in the order the release writes them.
+COLUMNS = tuple(Question.model_fields)
 
 
-def load_all_items(root: str | Path) -> list[Item]:
-    """Load and concatenate every ``*.jsonl`` under ``root``."""
-    items: list[Item] = []
-    for p in sorted(Path(root).glob("*.jsonl")):
-        items.extend(load_items(p))
-    return items
-
-
-# --- release manifest --------------------------------------------------------
+# --- export manifest ---------------------------------------------------------
 
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class ReleaseFile(StrictModel):
+class DomainFile(StrictModel):
     path: Path
-    n_items: int = Field(ge=0)
+    n_rows: int = Field(ge=0)
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    cells: dict[str, int]
 
 
-class ChecksummedFile(StrictModel):
-    path: Path
-    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-
-
-class ReleaseManifest(StrictModel):
+class ExportManifest(StrictModel):
     schema_version: Literal[1]
     release: str
-    status: str
-    n_items: int = Field(ge=0)
-    unique_ids: int = Field(ge=0)
-    cells: dict[str, ReleaseFile]
-    transcript_manifest: ChecksummedFile
-    # Recorded for provenance only; the released snapshot does not ship these files.
-    source_pools: dict[str, ReleaseFile] = Field(default_factory=dict)
-    provenance: dict[str, Any] = Field(default_factory=dict)
+    source_release_manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    # Recorded for provenance: the option order was fixed by this seed at export
+    # time and is now frozen into the published `choices` column.
+    seed: int
+    canary: str
+    domains: dict[str, DomainFile]
+    generated_at: str
+
+    @property
+    def n_rows(self) -> int:
+        return sum(domain.n_rows for domain in self.domains.values())
+
+    def cell_counts(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for domain in self.domains.values():
+            counts.update(domain.cells)
+        return counts
+
+
+def load_manifest(data_dir: str | Path) -> ExportManifest:
+    path = Path(data_dir) / MANIFEST_FILE
+    return ExportManifest.model_validate(json.loads(path.read_text(encoding="utf-8")))
 
 
 def sha256(path: Path) -> str:
@@ -81,74 +83,120 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def jsonl_ids(path: Path) -> list[str]:
-    ids: list[str] = []
-    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        if not line.strip():
-            continue
-        value = json.loads(line)
-        item_id = value.get("id")
-        if not isinstance(item_id, str) or not item_id:
-            raise ValueError(f"{path}:{line_number} has no string id")
-        ids.append(item_id)
-    return ids
+# --- questions ---------------------------------------------------------------
 
 
-def load_manifest(data_dir: str | Path) -> ReleaseManifest:
-    path = Path(data_dir) / "manifest.json"
-    return ReleaseManifest.model_validate(json.loads(path.read_text(encoding="utf-8")))
+def read_parquet(path: str | Path) -> list[Question]:
+    """Read one released parquet file into questions, preserving row order."""
+    import pyarrow.parquet as pq
+
+    table = pq.read_table(str(path), columns=list(COLUMNS))
+    return [Question.model_validate(row) for row in table.to_pylist()]
+
+
+def load_questions(data_dir: str | Path = DEFAULT_DATA_DIR) -> list[Question]:
+    """Load every released question: engineering first, then research, in file order."""
+    root = Path(data_dir)
+    manifest = load_manifest(root)
+    questions: list[Question] = []
+    for domain in sorted(manifest.domains):  # "engineering" < "research"
+        questions.extend(read_parquet(root / manifest.domains[domain].path))
+    return questions
+
+
+# --- verification ------------------------------------------------------------
 
 
 def verify_release(data_dir: str | Path) -> dict[str, Any]:
-    """Check every released item file against the manifest checksums and counts."""
-    release_dir = Path(data_dir).resolve()
-    manifest = load_manifest(release_dir)
+    """Check the published parquet files against the export manifest.
+
+    Verifies each file's sha256 and row count, the per-cell counts, that the
+    contamination canary is identical on every row and equal to the manifest
+    canary, and that every row satisfies :func:`check_question`.
+    """
+    root = Path(data_dir).resolve()
+    manifest = load_manifest(root)
+
     seen: set[str] = set()
-    cells: dict[str, Any] = {}
-    for cell, record in manifest.cells.items():
-        path = release_dir / record.path
-        ids = jsonl_ids(path)
-        duplicates = seen.intersection(ids)
-        if duplicates:
-            raise ValueError(f"cross-cell duplicate ids: {sorted(duplicates)[:10]}")
-        seen.update(ids)
+    problems: list[str] = []
+    cells: dict[str, int] = {}
+    domains: dict[str, Any] = {}
+    canaries: set[str] = set()
+
+    for domain in sorted(manifest.domains):
+        record = manifest.domains[domain]
+        path = root / record.path
         actual_hash = sha256(path)
         if actual_hash != record.sha256:
-            raise ValueError(f"{cell}: checksum mismatch")
-        if len(ids) != record.n_items:
-            raise ValueError(f"{cell}: expected {record.n_items} items, found {len(ids)}")
-        cells[cell] = {"n_items": len(ids), "sha256": actual_hash}
+            raise ValueError(f"{domain}: checksum mismatch for {record.path}")
+        questions = read_parquet(path)
+        if len(questions) != record.n_rows:
+            raise ValueError(f"{domain}: expected {record.n_rows} rows, found {len(questions)}")
 
-    transcript_hash = sha256(release_dir / manifest.transcript_manifest.path)
-    if transcript_hash != manifest.transcript_manifest.sha256:
-        raise ValueError("transcript manifest checksum mismatch")
+        duplicates = seen.intersection(q.id for q in questions)
+        if duplicates:
+            raise ValueError(f"duplicate question ids: {sorted(duplicates)[:10]}")
+        seen.update(q.id for q in questions)
 
-    if len(seen) != manifest.n_items or len(seen) != manifest.unique_ids:
-        raise ValueError(f"release count mismatch: manifest={manifest.n_items}, actual={len(seen)}")
+        domain_cells: dict[str, int] = {}
+        for q in questions:
+            if q.domain != domain:
+                problems.append(f"{q.id}: domain {q.domain!r} in the {domain!r} file")
+            domain_cells[q.cell] = domain_cells.get(q.cell, 0) + 1
+            canaries.add(q.canary)
+            problems.extend(f"{q.id}: {problem}" for problem in check_question(q))
+        if domain_cells != record.cells:
+            raise ValueError(f"{domain}: cell counts {domain_cells} != manifest {record.cells}")
+        cells.update(domain_cells)
+        domains[domain] = {"n_rows": len(questions), "sha256": actual_hash}
+
+    if canaries != {manifest.canary}:
+        raise ValueError("canary is missing, not constant across rows, or not the manifest canary")
+    if problems:
+        raise ValueError(f"{len(problems)} invalid questions; first: " + "; ".join(problems[:5]))
+    if len(seen) != manifest.n_rows:
+        raise ValueError(f"release count mismatch: manifest={manifest.n_rows}, actual={len(seen)}")
+
     return {
         "passed": True,
         "release": manifest.release,
-        "n_items": len(seen),
-        "cells": cells,
-        "transcript_manifest_sha256": transcript_hash,
+        "n_questions": len(seen),
+        "cells": dict(sorted(cells.items())),
+        "domains": domains,
+        "canary": manifest.canary,
     }
 
 
 # --- download ----------------------------------------------------------------
 
+GATED_HELP = (
+    "The Taste-Bench dataset is gated. Request access at "
+    "https://huggingface.co/datasets/{repo_id}, then authenticate with `hf auth login` "
+    "(or set HF_TOKEN) and retry."
+)
+
 
 def fetch(
     repo_id: str = HF_DATASET,
     local_dir: Path = DEFAULT_DATA_DIR,
-    revision: str | None = None,
+    revision: str | None = HF_REVISION,
 ) -> Path:
-    """Download the released snapshot from the Hugging Face Hub into ``local_dir``."""
+    """Download the published dataset snapshot from the Hugging Face Hub."""
     from huggingface_hub import snapshot_download
+    from huggingface_hub.errors import GatedRepoError, HfHubHTTPError
 
-    path = snapshot_download(
-        repo_id=repo_id,
-        repo_type="dataset",
-        revision=revision,
-        local_dir=str(local_dir),
-    )
+    try:
+        path = snapshot_download(
+            repo_id=repo_id,
+            repo_type="dataset",
+            revision=revision,
+            local_dir=str(local_dir),
+        )
+    except GatedRepoError as exc:
+        raise SystemExit(GATED_HELP.format(repo_id=repo_id)) from exc
+    except HfHubHTTPError as exc:
+        status = getattr(exc.response, "status_code", None)
+        if status in (401, 403):
+            raise SystemExit(GATED_HELP.format(repo_id=repo_id)) from exc
+        raise
     return Path(path)

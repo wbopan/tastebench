@@ -94,6 +94,17 @@ def test_macro_average_weights_domains_one_to_one():
     assert macro_average(summary, skewed) == 75.0
 
 
+def test_cell_counts_reads_the_export_manifest_shape():
+    export_manifest = {
+        "domains": {
+            "engineering": {"cells": {"detour_engineering": 2, "parallel_engineering": 2}},
+            "research": {"cells": {"detour_research": 2, "parallel_research": 2}},
+        }
+    }
+    assert cell_counts(export_manifest) == CELLS
+    assert cell_counts(CELLS) == CELLS
+
+
 def test_leaderboard_ranks_published_summaries(tmp_path):
     records = _records()
     summary = paired_summary(records, {r["item_id"]: r["cell"] for r in records})

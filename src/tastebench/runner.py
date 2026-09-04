@@ -1,4 +1,4 @@
-"""Run one model over every release item under both option orders."""
+"""Run one model over every published question under both option orders."""
 
 from __future__ import annotations
 
@@ -14,16 +14,22 @@ from typing import Any
 
 import yaml
 
-from tastebench.data import DEFAULT_DATA_DIR, load_items, load_manifest, sha256
+from tastebench.data import (
+    DEFAULT_DATA_DIR,
+    HF_DATASET,
+    HF_REVISION,
+    load_manifest,
+    load_questions,
+    sha256,
+)
 from tastebench.paired import (
     make_token_counter,
     parse_final_answer,
     prepare_question,
-    reconstruct_prefix,
     sha256_json,
 )
+from tastebench.schema import Question
 from tastebench.scoring import paired_summary
-from tastebench.transcripts import TranscriptStore
 from tastebench.transport import ChatTransport
 
 PROTOCOL_FILE = Path("protocol/paired_order_v1.yaml")
@@ -70,18 +76,18 @@ def model_request(models_config: dict[str, Any], model: str, default_max_tokens:
     return fields
 
 
-def load_release(data_dir: Path) -> tuple[list[Any], dict[str, str], dict[str, Any]]:
+def load_release(data_dir: Path) -> tuple[list[Question], dict[str, Any]]:
+    """Load the published questions and the per-file checksums that identify them."""
     manifest = load_manifest(data_dir)
-    items: list[Any] = []
-    cell_by_id: dict[str, str] = {}
-    sources: dict[str, Any] = {}
-    for cell, record in manifest.cells.items():
-        path = data_dir / record.path
-        cell_items = load_items(path)
-        items.extend(cell_items)
-        cell_by_id.update({item.id: cell for item in cell_items})
-        sources[cell] = {"n_items": len(cell_items), "sha256": sha256(path)}
-    return items, cell_by_id, sources
+    questions = load_questions(data_dir)
+    sources = {
+        domain: {"n_rows": record.n_rows, "sha256": record.sha256}
+        for domain, record in sorted(manifest.domains.items())
+    }
+    for domain, record in manifest.domains.items():
+        if sha256(data_dir / record.path) != record.sha256:
+            raise SystemExit(f"{domain}: local parquet does not match the export manifest checksum")
+    return questions, {"release": manifest.release, "domains": sources}
 
 
 def run(
@@ -108,14 +114,10 @@ def run(
     if not api_key:
         raise SystemExit(f"missing {key_env}")
 
-    items, cell_by_id, sources = load_release(data_dir)
+    questions, sources = load_release(data_dir)
     if limit:
-        items = items[:limit]
-        cell_by_id = {item.id: cell_by_id[item.id] for item in items}
-
-    store = TranscriptStore(data_dir / "transcripts")
-    transcript_path = data_dir / "transcripts.manifest.json"
-    transcript_manifest = json.loads(transcript_path.read_text(encoding="utf-8"))
+        questions = questions[:limit]
+    cell_by_id = {question.id: question.cell for question in questions}
 
     request_fields = model_request(models_config, model, int(config.get("max_tokens", 65536)))
     fallback = bool(
@@ -133,7 +135,6 @@ def run(
         retries=int(config.get("retries", 4)),
     )
 
-    seed = int(config.get("seed", 1234))
     multiplier = float(config.get("token_multiplier", 1.0))
     count_tokens = make_token_counter(multiplier)
     max_input_tokens = int(protocol["input"]["max_tokens"])
@@ -146,16 +147,14 @@ def run(
             "model": model,
             "request": request_fields,
             "token_multiplier": multiplier,
-            "seed": seed,
+            "dataset": {"repo_id": HF_DATASET, "revision": HF_REVISION},
             "sources": sources,
-            "transcript_manifest_sha256": sha256(transcript_path),
         }
     )
 
     out_dir = (out_root / model / datetime.now(UTC).strftime("%Y%m%d")).resolve()
     raw_root = out_dir / "raw"
     raw_root.mkdir(parents=True, exist_ok=True)
-    prefix_by_id = {item.id: reconstruct_prefix(item, store, transcript_manifest) for item in items}
     write_lock = threading.Lock()
 
     def reusable(path: Path) -> dict[str, Any] | None:
@@ -170,53 +169,51 @@ def run(
 
     tasks = []
     records: list[dict[str, Any]] = []
-    for item in items:
+    for question in questions:
         for order, reverse in (("seeded", False), ("reversed", True)):
-            path = raw_root / order / f"{item.id}.json"
+            path = raw_root / order / f"{question.id}.json"
             cached = reusable(path)
             if cached:
                 records.append(cached)
             else:
-                tasks.append((item, order, reverse, path))
+                tasks.append((question, order, reverse, path))
 
-    def work(task: tuple[Any, str, bool, Path]) -> dict[str, Any]:
-        item, order, reverse, path = task
+    def work(task: tuple[Question, str, bool, Path]) -> dict[str, Any]:
+        question, order, reverse, path = task
         base = {
             "schema_version": 1,
-            "item_id": item.id,
-            "cell": cell_by_id[item.id],
+            "item_id": question.id,
+            "cell": question.cell,
             "model": model,
             "order": order,
             "reverse_options": reverse,
             "request_fingerprint": request_fingerprint,
         }
         try:
-            question = prepare_question(
-                item,
-                prefix_by_id[item.id],
-                seed=seed,
+            prepared = prepare_question(
+                question,
                 reverse=reverse,
                 system_prompt=system_prompt,
                 user_template=user_template,
                 max_input_tokens=max_input_tokens,
                 count_tokens=count_tokens,
             )
-            completion = transport.complete(question.messages)
+            completion = transport.complete(prepared.messages)
             text = completion.pop("text")
-            pred = parse_final_answer(text, item.arity)
+            pred = parse_final_answer(text, question.arity)
             record = {
                 **base,
                 "prompt_sha256": hashlib.sha256(
-                    json.dumps(question.messages, ensure_ascii=False).encode()
+                    json.dumps(prepared.messages, ensure_ascii=False).encode()
                 ).hexdigest(),
-                "input_tokens": question.input_tokens,
-                "tokenizer_type": question.tokenizer_type,
-                "full_prefix_chars": question.full_prefix_chars,
-                "visible_prefix_chars": question.visible_prefix_chars,
-                "input_truncated": question.truncated,
-                "correct": question.correct,
+                "input_tokens": prepared.input_tokens,
+                "tokenizer_type": prepared.tokenizer_type,
+                "full_prefix_chars": prepared.full_prefix_chars,
+                "visible_prefix_chars": prepared.visible_prefix_chars,
+                "input_truncated": prepared.truncated,
+                "correct": prepared.correct,
                 "pred": pred,
-                "ok": pred == question.correct if pred else None,
+                "ok": pred == prepared.correct if pred else None,
                 "text": text,
                 **completion,
             }
@@ -227,7 +224,7 @@ def run(
         return record
 
     completed = len(records)
-    total = len(items) * 2
+    total = len(questions) * 2
     with ThreadPoolExecutor(max_workers=int(config.get("workers", 6))) as executor:
         futures = [executor.submit(work, task) for task in tasks]
         for future in as_completed(futures):
@@ -246,10 +243,16 @@ def run(
         "protocol_id": str(protocol["id"]),
         "protocol_sha256": sha256(protocol_path),
         "config_sha256": sha256(config_path),
-        "release_manifest_sha256": sha256(data_dir / "manifest.json"),
+        "dataset": {
+            "repo_id": HF_DATASET,
+            "revision": HF_REVISION,
+            "release": sources["release"],
+            "parquet_sha256": {
+                domain: record["sha256"] for domain, record in sources["domains"].items()
+            },
+        },
         "request_fingerprint": request_fingerprint,
-        "seed": seed,
-        "n_items": len(items),
+        "n_items": len(questions),
         "cell_counts": dict(Counter(cell_by_id.values())),
         "credentials_persisted": False,
         "private_reasoning_persisted": False,

@@ -11,11 +11,10 @@ from tastebench import runner
 from tastebench.data import (
     DEFAULT_DATA_DIR,
     HF_DATASET,
+    HF_REVISION,
     fetch,
-    load_all_items,
     verify_release,
 )
-from tastebench.schema import check_item
 from tastebench.scoring import (
     counts_from_summary,
     leaderboard_markdown,
@@ -23,7 +22,6 @@ from tastebench.scoring import (
     paired_summary,
 )
 from tastebench.scoring import leaderboard as leaderboard_rows
-from tastebench.transcripts import TranscriptStore
 
 app = typer.Typer(add_completion=False, help="Taste-Bench evaluation CLI.")
 
@@ -32,36 +30,30 @@ app = typer.Typer(add_completion=False, help="Taste-Bench evaluation CLI.")
 def download(
     repo_id: str = typer.Option(HF_DATASET, help="Hugging Face dataset repository."),
     data: Path = typer.Option(DEFAULT_DATA_DIR, help="Local directory to download into."),
-    revision: str = typer.Option("", help="Optional revision, branch, or tag."),
+    revision: str = typer.Option(HF_REVISION, help="Dataset revision, branch, or tag."),
 ) -> None:
-    """Download the released items and transcripts."""
+    """Download the published dataset from the Hugging Face Hub."""
     path = fetch(repo_id, data, revision or None)
-    typer.echo(f"downloaded {repo_id} to {path}")
+    typer.echo(f"downloaded {repo_id}@{revision or 'main'} to {path}")
 
 
 @app.command()
 def validate(
-    data: Path = typer.Option(DEFAULT_DATA_DIR, help="Release directory."),
+    data: Path = typer.Option(DEFAULT_DATA_DIR, help="Dataset directory."),
 ) -> None:
-    """Check manifest checksums and every item invariant against the transcripts."""
-    report = verify_release(data)
-    items = load_all_items(data / "items")
-    store = TranscriptStore(data / "transcripts")
-    grounded = store.is_populated()
-    problems = []
-    for item in items:
-        for problem in check_item(item, store if grounded else None):
-            problems.append(f"{item.id}: {problem}")
-    for problem in problems[:20]:
-        typer.echo(problem)
-    if problems:
-        typer.echo(f"{len(problems)} problems")
-        raise typer.Exit(1)
+    """Check the parquet checksums, the canary, and every question invariant."""
+    try:
+        report = verify_release(data)
+    except ValueError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(1) from exc
+    cells = report["cells"]
     typer.echo(
-        f"release {report['release']}: {len(items)} items valid, "
-        f"{len(report['cells'])} cells, checksums match"
-        + ("" if grounded else " (transcripts absent: structural checks only)")
+        f"release {report['release']}: {report['n_questions']} questions valid, "
+        f"{len(cells)} cells, checksums match"
     )
+    for cell, count in cells.items():
+        typer.echo(f"  {cell:<22} {count}")
 
 
 @app.command()
@@ -70,11 +62,11 @@ def run(
     config: Path = typer.Option(Path("configs/eval.yaml"), help="Evaluation config."),
     models: Path = typer.Option(Path("configs/models.yaml"), help="Per-model request overrides."),
     api: str = typer.Option("", help="OpenAI-compatible chat/completions or responses URL."),
-    data: Path = typer.Option(DEFAULT_DATA_DIR, help="Release directory."),
+    data: Path = typer.Option(DEFAULT_DATA_DIR, help="Dataset directory."),
     out: Path = typer.Option(Path("runs"), help="Root directory for run outputs."),
-    limit: int = typer.Option(0, help="Evaluate only the first N items (smoke runs)."),
+    limit: int = typer.Option(0, help="Evaluate only the first N questions (smoke runs)."),
 ) -> None:
-    """Evaluate one model over both option orders for every release item."""
+    """Evaluate one model over both option orders for every published question."""
     out_dir = runner.run(
         model=model,
         config_path=config,

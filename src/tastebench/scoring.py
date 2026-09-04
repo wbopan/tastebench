@@ -134,13 +134,27 @@ def paired_summary(records: list[dict[str, Any]], cell_by_id: dict[str, str]) ->
 
 
 def cell_counts(manifest: Any) -> dict[str, int]:
-    """Normalise a release manifest (model, dict, or plain mapping) to cell -> n_items."""
+    """Normalise a release manifest (model, dict, or plain mapping) to cell -> n_items.
+
+    Accepts the published export manifest, whose counts live under
+    ``domains.<domain>.cells``, as well as a plain ``cell -> count`` mapping.
+    """
+    counts: dict[str, int] = {}
+
+    domains = getattr(manifest, "domains", None)
+    if domains is None and isinstance(manifest, dict):
+        domains = manifest.get("domains")
+    if domains is not None:
+        for domain in domains.values():
+            cells_of_domain = domain["cells"] if isinstance(domain, dict) else domain.cells
+            counts.update({cell: int(count) for cell, count in cells_of_domain.items()})
+        return counts
+
     cells = getattr(manifest, "cells", None)
     if cells is None and isinstance(manifest, dict):
         cells = manifest.get("cells", manifest)
     if cells is None:
         raise ValueError("manifest carries no cell counts")
-    counts: dict[str, int] = {}
     for cell, record in cells.items():
         if isinstance(record, int):
             counts[cell] = record
