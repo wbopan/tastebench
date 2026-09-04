@@ -1,0 +1,22 @@
+# Evaluation defaults for `tb run`.
+#
+# `api` is required: point it at any OpenAI-compatible chat/completions or responses
+# URL. Fill it in here or pass `--api` on the command line. The API key is read from
+# the environment variable named by `api_key_env`; it never lives in this file.
+api: ""
+api_key_env: TASTEBENCH_API_KEY
+
+# The per-item option shuffle is seeded by f"{seed}-{item.id}", so the seeded order is
+# stable across models and the reversed order is its exact reverse.
+seed: 1234
+
+workers: 6
+
+# Cap on request input tokens is set by the protocol (65536). `max_tokens` below is the
+# per-request generation budget; `token_multiplier` inflates the local tiktoken preflight
+# count so a provider tokenizer that differs from o200k_base still fits under the cap.
+max_tokens: 65536
+token_multiplier: 1.02
+
+timeout_seconds: 900
+retries: 4

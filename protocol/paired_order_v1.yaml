@@ -1,0 +1,40 @@
+schema_version: 1
+id: v3-paired-order-full-prefix-64k-final-answer-v1
+kind: paired_order_model_evaluation
+input:
+  prefix_source: manifest_verified_transcript_steps_before_breakpoint
+  sensitive_redaction: tastebench_secret_patterns_before_any_hash_or_request
+  max_tokens: 65536
+  token_counter: local_tiktoken_o200k_base_over_rendered_messages_with_configurable_safety_multiplier
+  overflow_policy: first_25_rendered_lines_plus_maximal_tail
+presentation:
+  options: per_item_seeded_order_and_exact_reverse
+  labels: recomputed_after_each_ordering
+  context: task_full_redacted_prefix_and_two_candidate_next_steps
+  visible_response: final_answer_only
+prompt:
+  system: >-
+    You are evaluating an autonomous agent at a technical decision point. The task,
+    the agent's progress, and two candidate next steps are provided. Exactly one
+    candidate is the better technical decision.
+  user_template: |-
+    # Task given to the agent
+    {query}
+
+    # Agent's progress so far (transcript up to the decision point)
+    {prefix}
+
+    # Decision point
+    {options}
+
+    Which option is the better technical decision?
+    Return exactly one line: ANSWER: X
+scoring:
+  headline_denominator: all_release_items_errors_and_unparsed_count_as_incorrect
+  paired_outcomes: [CC, CW, WC, WW]
+  required_metrics:
+    - seeded_accuracy
+    - reversed_accuracy
+    - two_order_mean_accuracy
+    - both_correct_rate
+    - per_cell_metrics

@@ -1,0 +1,184 @@
+{
+  "n_items": 502,
+  "overall": {
+    "seeded": {
+      "n": 502,
+      "correct": 285,
+      "accuracy": 0.567729,
+      "parsed": 500,
+      "errors": 0,
+      "unparsed": 2
+    },
+    "reversed": {
+      "n": 502,
+      "correct": 275,
+      "accuracy": 0.547809,
+      "parsed": 501,
+      "errors": 0,
+      "unparsed": 1
+    },
+    "two_order_mean_accuracy": 0.557769,
+    "both_correct": 224,
+    "both_correct_rate": 0.446215,
+    "paired_outcomes": {
+      "CC": 224,
+      "CW": 61,
+      "WC": 51,
+      "WW": 166
+    },
+    "position_choices": {
+      "reversed_A": 263,
+      "reversed_B": 238,
+      "seeded_A": 275,
+      "seeded_B": 225
+    }
+  },
+  "per_cell": {
+    "detour_engineering": {
+      "seeded": {
+        "n": 266,
+        "correct": 123,
+        "accuracy": 0.462406,
+        "parsed": 266,
+        "errors": 0,
+        "unparsed": 0
+      },
+      "reversed": {
+        "n": 266,
+        "correct": 127,
+        "accuracy": 0.477444,
+        "parsed": 266,
+        "errors": 0,
+        "unparsed": 0
+      },
+      "two_order_mean_accuracy": 0.469925,
+      "both_correct": 92,
+      "both_correct_rate": 0.345865,
+      "paired_outcomes": {
+        "CC": 92,
+        "CW": 31,
+        "WC": 35,
+        "WW": 108
+      },
+      "position_choices": {
+        "reversed_A": 141,
+        "reversed_B": 125,
+        "seeded_A": 153,
+        "seeded_B": 113
+      }
+    },
+    "detour_research": {
+      "seeded": {
+        "n": 64,
+        "correct": 37,
+        "accuracy": 0.578125,
+        "parsed": 64,
+        "errors": 0,
+        "unparsed": 0
+      },
+      "reversed": {
+        "n": 64,
+        "correct": 31,
+        "accuracy": 0.484375,
+        "parsed": 64,
+        "errors": 0,
+        "unparsed": 0
+      },
+      "two_order_mean_accuracy": 0.53125,
+      "both_correct": 25,
+      "both_correct_rate": 0.390625,
+      "paired_outcomes": {
+        "CC": 25,
+        "CW": 12,
+        "WC": 6,
+        "WW": 21
+      },
+      "position_choices": {
+        "reversed_A": 34,
+        "reversed_B": 30,
+        "seeded_A": 34,
+        "seeded_B": 30
+      }
+    },
+    "parallel_engineering": {
+      "seeded": {
+        "n": 124,
+        "correct": 89,
+        "accuracy": 0.717742,
+        "parsed": 122,
+        "errors": 0,
+        "unparsed": 2
+      },
+      "reversed": {
+        "n": 124,
+        "correct": 87,
+        "accuracy": 0.701613,
+        "parsed": 123,
+        "errors": 0,
+        "unparsed": 1
+      },
+      "two_order_mean_accuracy": 0.709677,
+      "both_correct": 80,
+      "both_correct_rate": 0.645161,
+      "paired_outcomes": {
+        "CC": 80,
+        "CW": 9,
+        "WC": 7,
+        "WW": 28
+      },
+      "position_choices": {
+        "reversed_A": 60,
+        "reversed_B": 63,
+        "seeded_A": 62,
+        "seeded_B": 60
+      }
+    },
+    "parallel_research": {
+      "seeded": {
+        "n": 48,
+        "correct": 36,
+        "accuracy": 0.75,
+        "parsed": 48,
+        "errors": 0,
+        "unparsed": 0
+      },
+      "reversed": {
+        "n": 48,
+        "correct": 30,
+        "accuracy": 0.625,
+        "parsed": 48,
+        "errors": 0,
+        "unparsed": 0
+      },
+      "two_order_mean_accuracy": 0.6875,
+      "both_correct": 27,
+      "both_correct_rate": 0.5625,
+      "paired_outcomes": {
+        "CC": 27,
+        "CW": 9,
+        "WC": 3,
+        "WW": 9
+      },
+      "position_choices": {
+        "reversed_A": 28,
+        "reversed_B": 20,
+        "seeded_A": 26,
+        "seeded_B": 22
+      }
+    }
+  },
+  "usage": {
+    "prompt_tokens": 7908460,
+    "completion_tokens": 1139721,
+    "total_tokens": 9048181,
+    "reasoning_tokens": 622739
+  },
+  "input": {
+    "max_tokens": 59765,
+    "max_provider_reported_prompt_tokens": 53748,
+    "truncated_presentations": 0,
+    "tokenizer_types": [
+      "openai_tokenizer*1.1"
+    ]
+  }
+}

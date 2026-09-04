@@ -1,0 +1,24 @@
+# Per-model request overrides, keyed by the model id sent to the endpoint.
+# Add a model here to evaluate it; a model absent from this file is still runnable and
+# simply sends no overrides. Recognised fields:
+#   temperature:      float | null   (sent only when the endpoint allows it)
+#   no_temperature:   bool           (endpoint rejects an explicit temperature)
+#   reasoning_effort: str | null     (e.g. "high", "xhigh")
+#   max_tokens:       int | null     (chat/completions generation budget)
+#   max_completion_tokens: int | null (reasoning-model generation budget)
+#   reasoning_content_fallback: bool (provider returns its answer in reasoning_content)
+#   request:          mapping        (extra fields merged verbatim into the request body)
+models:
+  gpt-5.5:
+    no_temperature: true
+    request:
+      reasoning_effort: xhigh
+      max_completion_tokens: 65536
+  claude-opus-5:
+    no_temperature: true
+    max_tokens: 65536
+  deepseek-v4-flash:
+    temperature: 0
+  glm-5.2:
+    no_temperature: true
+    reasoning_content_fallback: true

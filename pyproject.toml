@@ -1,0 +1,52 @@
+[project]
+name = "tastebench"
+version = "0.1.0"
+description = "Static benchmark for engineering/research taste: pick the better next step at a real agent decision fork"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.6",
+    "pyyaml>=6.0",
+    "typer>=0.12",
+    "tiktoken",
+    "huggingface_hub",
+]
+
+[project.scripts]
+tb = "tastebench.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "mypy>=1.10",
+    "types-pyyaml",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tastebench"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.flake8-bugbear]
+# typer/click sentinels are intentionally evaluated at import time.
+extend-immutable-calls = ["typer.Option", "typer.Argument"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.mypy]
+python_version = "3.11"
+packages = ["tastebench"]
+plugins = ["pydantic.mypy"]
+ignore_missing_imports = true
