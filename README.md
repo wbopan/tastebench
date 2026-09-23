@@ -7,9 +7,9 @@
 
 <br>
 
-📄 [Paper](#citation) &nbsp;|&nbsp; 🤗 [Dataset](https://huggingface.co/datasets/wenbopan/taste-bench) &nbsp;|&nbsp; 🏆 [Leaderboard](#leaderboard) &nbsp;|&nbsp; 🚀 [Quick start](#quick-start)
+📄 [Paper](https://arxiv.org/abs/2609.25804) &nbsp;|&nbsp; 🤗 [Dataset](https://huggingface.co/datasets/wenbopan/taste-bench) &nbsp;|&nbsp; 🏆 [Leaderboard](#leaderboard) &nbsp;|&nbsp; 🚀 [Quick start](#quick-start)
 
-[![Dataset](https://img.shields.io/badge/🤗_Dataset-wenbopan%2Ftaste--bench-FFD21E?style=flat)](https://huggingface.co/datasets/wenbopan/taste-bench) [![CI](https://github.com/wbopan/tastebench/actions/workflows/ci.yml/badge.svg)](https://github.com/wbopan/tastebench/actions/workflows/ci.yml) [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat&logo=python&logoColor=white)](pyproject.toml) [![License](https://img.shields.io/badge/License-MIT-1A1A1A?style=flat)](LICENSE)
+[![arXiv](https://img.shields.io/badge/arXiv-2609.25804-B31B1B?style=flat&logo=arxiv&logoColor=white)](https://arxiv.org/abs/2609.25804) [![Paper page](https://img.shields.io/badge/🤗_Paper-2609.25804-FFD21E?style=flat)](https://huggingface.co/papers/2609.25804) [![Dataset](https://img.shields.io/badge/🤗_Dataset-wenbopan%2Ftaste--bench-FFD21E?style=flat)](https://huggingface.co/datasets/wenbopan/taste-bench) [![CI](https://github.com/wbopan/tastebench/actions/workflows/ci.yml/badge.svg)](https://github.com/wbopan/tastebench/actions/workflows/ci.yml) [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat&logo=python&logoColor=white)](pyproject.toml) [![License](https://img.shields.io/badge/License-MIT-1A1A1A?style=flat)](LICENSE)
 
 </div>
 
@@ -98,11 +98,11 @@ rows = load_dataset("wenbopan/taste-bench", "engineering", split="test", revisio
 ## Citation
 
 ```bibtex
-@inproceedings{tastebench2026,
-  title     = {The Tasteful Agent: Measuring and Improving Taste in Long-Horizon Tasks},
-  author    = {},
-  booktitle = {},
-  year      = {2026}
+@article{pan2026tasteful,
+  title   = {The Tasteful Agent: Measuring and Improving Taste in Long-Horizon Tasks},
+  author  = {Pan, Wenbo and Liu, Zhichao and Liu, Shujie and Zeng, Jingying and Lin, Chin-Yew and Tang, Xianfeng and Lu, Yan and He, Qi and Jia, Xiaohua},
+  journal = {arXiv preprint arXiv:2609.25804},
+  year    = {2026}
 }
 ```
 
